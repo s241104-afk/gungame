@@ -1,0 +1,476 @@
+
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>和平精英風格射擊生存遊戲</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; background: #f0f0f0; }
+        #gameArea { position: relative; width: 400px; height: 600px; margin: 20px auto; background: #228B22; border: 2px solid #333; overflow: hidden; }
+        #car { position: absolute; width: 50px; height: 50px; background: url('https://png.pngtree.com/png-clipart/20211010/original/pngtree-air-force-fighter-cartoon-black-png-image_6850953.png') no-repeat center center; background-size: contain; transition: all 0.1s ease; left: 175px; top: 500px; }
+        #car2 { position: absolute; width: 50px; height: 50px; background: url('https://png.pngtree.com/png-clipart/20211010/original/pngtree-air-force-fighter-cartoon-black-png-image_6850953.png') no-repeat center center; background-size: contain; transition: all 0.1s ease; left: 175px; top: 500px; display: none; }
+        .enemy { position: absolute; width: 30px; height: 30px; background: red; }
+        .bullet { position: absolute; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 10px solid blue; }
+        .rocket { position: absolute; width: 10px; height: 20px; background: orange; }
+        .explosion { position: absolute; background: rgba(255, 165, 0, 0.7); border-radius: 50%; animation: explode 0.5s forwards; }
+        @keyframes explode { 0% { width: 10px; height: 10px; opacity: 0.7; } 100% { width: 100px; height: 100px; opacity: 0; } }
+        .poisonCircle { position: absolute; background: rgba(0, 255, 0, 0.3); border: 3px solid red; border-radius: 50%; }
+        button { padding: 10px 20px; margin: 10px; background: #4CAF50; color: white; border: none; cursor: pointer; }
+        button:hover { background: #45a049; }
+        #status { color: blue; margin: 10px; }
+        #score { font-size: 20px; margin: 10px; }
+        #gameOver { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 30px; color: red; display: none; }
+        #bulletStatus { position: absolute; top: 20px; right: 20px; font-size: 16px; color: white; }
+        #livesStatus { position: absolute; top: 40px; right: 20px; font-size: 16px; color: white; }
+        #armorStatus { position: absolute; top: 60px; right: 20px; font-size: 16px; color: white; }
+        #poisonStatus { position: absolute; top: 80px; right: 20px; font-size: 16px; color: white; }
+        #upgradePanel { position: absolute; top: 20px; left: 20px; background: rgba(255, 255, 255, 0.9); padding: 10px; border: 1px solid #333; display: none; }
+        #upgradePanel button { display: block; margin: 5px 0; }
+        #modeToggle { background: #2196F3; }
+        #modeToggle:hover { background: #0b7dda; }
+        #modeStatus { font-size: 16px; margin: 10px; color: #666; }
+    </style>
+</head>
+<body>
+    <h1>和平精英風格射擊生存遊戲</h1>
+    <p>P1: 使用 W、A、S、D 鍵移動，E 發射子彈/火箭 | P2: 使用 I、J、K、L 移動，O 發射子彈/火箭。擊殺敵人得分（子彈5分，火箭7分，火箭具範圍傷害）。毒圈快速縮小，每500ms扣0.5生命（半徑<100px時扣1生命）。擊殺敵人獲護甲（最大5）。生存到毒圈結束（半徑50px）或1000分勝利！</p>
+
+    <!-- 遊戲區域 -->
+    <div id="gameArea">
+        <div id="car"></div>
+        <div id="car2"></div>
+        <div id="poisonCircle"></div>
+        <div id="gameOver">Game Over!</div>
+        <div id="bulletStatus">子彈: 10/10</div>
+        <div id="livesStatus">生命: 3/3</div>
+        <div id="armorStatus">護甲: 0/5</div>
+        <div id="poisonStatus">毒圈: 安全</div>
+        <div id="upgradePanel">
+            <h3>選擇升級</h3>
+            <button onclick="upgradeFireRate()">射速加快 0.7 倍</button>
+            <button onclick="upgradeReloadTime()">補充子彈時間加快 0.7 倍</button>
+            <button onclick="upgradeBurstCount()">連發子彈數 +1</button>
+        </div>
+    </div>
+
+    <!-- 計分 -->
+    <div id="score">分數: 0</div>
+
+    <!-- 控制按鈕 -->
+    <button onclick="toggleGame()">開始/停止遊戲</button>
+    <button id="modeToggle" onclick="toggleMode()">切換模式 (單人)</button>
+    <div id="modeStatus">模式：單人</div>
+    <div id="status">狀態：遊戲尚未開始</div>
+
+    <script>
+        let car1 = { x: 175, y: 500, dx: 0, dy: 0, maxSpeed: 5 };
+        let car2 = { x: 175, y: 500, dx: 0, dy: 0, maxSpeed: 5 };
+        let enemies = [];
+        let bullets = [];
+        let gameRunning = false;
+        let gameOver = false;
+        let score = 0;
+        let bulletCount = 10;
+        let maxBullets = 10;
+        let reloadTime = 3000;
+        let isReloading = false;
+        let lastShotTime = 0;
+        let fireRate = 300;
+        let burstCount = 1;
+        let enemyInterval = 1200;
+        let lastUpgradeScore = 0;
+        let isMultiplayer = false;
+        let useRocket = false;
+        let lives = 3;
+        let maxLives = 3;
+        let armor = 0;
+        let maxArmor = 5;
+        let poisonRadius = 200;
+        let poisonCenterY = 100;
+        let poisonShrinkSpeed = 0.5;
+        let gameTime = 0;
+        let lastPoisonDamageTime = 0;
+
+        const gameArea = document.getElementById('gameArea');
+        const car1El = document.getElementById('car');
+        const car2El = document.getElementById('car2');
+        const poisonCircleEl = document.getElementById('poisonCircle');
+        const gameOverEl = document.getElementById('gameOver');
+        const statusEl = document.getElementById('status');
+        const scoreEl = document.getElementById('score');
+        const bulletStatusEl = document.getElementById('bulletStatus');
+        const livesStatusEl = document.getElementById('livesStatus');
+        const armorStatusEl = document.getElementById('armorStatus');
+        const poisonStatusEl = document.getElementById('poisonStatus');
+        const upgradePanelEl = document.getElementById('upgradePanel');
+        const modeToggleBtn = document.getElementById('modeToggle');
+        const modeStatusEl = document.getElementById('modeStatus');
+
+        // 鍵盤控制
+        const keysP1 = { KeyW: false, KeyA: false, KeyS: false, KeyD: false, KeyE: false };
+        const keysP2 = { KeyI: false, KeyJ: false, KeyK: false, KeyL: false, KeyO: false };
+
+        document.addEventListener('keydown', (event) => {
+            if (event.code in keysP1) keysP1[event.code] = true;
+            else if (event.code in keysP2) keysP2[event.code] = true;
+            event.preventDefault();
+        });
+
+        document.addEventListener('keyup', (event) => {
+            if (event.code in keysP1) keysP1[event.code] = false;
+            else if (event.code in keysP2) keysP2[event.code] = false;
+        });
+
+        function updateCarSpeed() {
+            car1.dx = 0; car1.dy = 0;
+            if (keysP1.KeyA) car1.dx = -car1.maxSpeed;
+            if (keysP1.KeyD) car1.dx = car1.maxSpeed;
+            if (keysP1.KeyW) car1.dy = -car1.maxSpeed;
+            if (keysP1.KeyS) car1.dy = car1.maxSpeed;
+            if (keysP1.KeyE) shootBullet(car1);
+
+            if (isMultiplayer) {
+                car2.dx = 0; car2.dy = 0;
+                if (keysP2.KeyJ) car2.dx = -car2.maxSpeed;
+                if (keysP2.KeyL) car2.dx = car2.maxSpeed;
+                if (keysP2.KeyI) car2.dy = -car2.maxSpeed;
+                if (keysP2.KeyK) car2.dy = car2.maxSpeed;
+                if (keysP2.KeyO) shootBullet(car2);
+            }
+        }
+
+        function isPointInCircle(x, y, centerX, centerY, radius) {
+            const dx = x - centerX;
+            const dy = y - centerY;
+            return Math.sqrt(dx * dx + dy * dy) < radius;
+        }
+
+        function createExplosion(x, y) {
+            const explosion = document.createElement('div');
+            explosion.className = 'explosion';
+            explosion.style.left = (x - 50) + 'px';
+            explosion.style.top = (y - 50) + 'px';
+            gameArea.appendChild(explosion);
+            setTimeout(() => explosion.remove(), 500);
+        }
+
+        function shootBullet(car) {
+            if (gameRunning && !gameOver && !isReloading) {
+                const currentTime = Date.now();
+                if (currentTime - lastShotTime < fireRate) return;
+                if (bulletCount >= burstCount) {
+                    for (let i = 0; i < burstCount; i++) {
+                        let bullet = {
+                            x: car.x + 22.5 + (i - (burstCount - 1) / 2) * 10,
+                            y: car.y - 10,
+                            speed: -8,
+                            isRocket: useRocket,
+                            el: document.createElement('div')
+                        };
+                        bullet.el.className = useRocket ? 'rocket' : 'bullet';
+                        bullet.el.style.left = bullet.x + 'px';
+                        bullet.el.style.top = bullet.y + 'px';
+                        gameArea.appendChild(bullet.el);
+                        bullets.push(bullet);
+                    }
+                    bulletCount -= burstCount;
+                    lastShotTime = currentTime;
+                    useRocket = false;
+                    updateBulletStatus();
+                    if (bulletCount <= 0) startReload();
+                }
+            }
+        }
+
+        function startReload() {
+            isReloading = true;
+            let startTime = Date.now();
+            let reloadInterval = setInterval(() => {
+                let elapsed = Date.now() - startTime;
+                let remaining = Math.max(0, (reloadTime - elapsed) / 1000).toFixed(1);
+                bulletStatusEl.textContent = `補充中: ${remaining}秒`;
+                if (elapsed >= reloadTime) {
+                    clearInterval(reloadInterval);
+                    bulletCount = maxBullets;
+                    isReloading = false;
+                    updateBulletStatus();
+                }
+            }, 100);
+        }
+
+        function updateBulletStatus() {
+            if (!isReloading) bulletStatusEl.textContent = `子彈: ${bulletCount}/${maxBullets}`;
+        }
+
+        function updateLivesDisplay() {
+            livesStatusEl.textContent = `生命: ${Math.max(0, Math.ceil(lives))}/${maxLives}`;
+        }
+
+        function updateArmorDisplay() {
+            armorStatusEl.textContent = `護甲: ${armor}/${maxArmor}`;
+        }
+
+        function updatePoisonStatus() {
+            const isSafe = isPointInCircle(car1.x + 25, car1.y + 25, 200, poisonCenterY, poisonRadius) &&
+                           (!isMultiplayer || isPointInCircle(car2.x + 25, car2.y + 25, 200, poisonCenterY, poisonRadius));
+            poisonStatusEl.textContent = isSafe ? `毒圈: 安全 半徑: ${Math.round(poisonRadius)}px` : `毒圈: 危險! 半徑: ${Math.round(poisonRadius)}px`;
+            if (!isSafe && gameTime % 10 === 0) { // 每500ms
+                const damage = poisonRadius < 100 ? 1 : 0.5;
+                if (armor > 0) armor--;
+                else lives -= damage;
+                updateArmorDisplay();
+                updateLivesDisplay();
+                if (lives <= 0) endGame(false);
+            }
+        }
+
+        function upgradeFireRate() {
+            fireRate *= 0.7;
+            hideUpgradePanel();
+            gameRunning = true;
+            statusEl.textContent = '遊戲繼續！射速提升！';
+        }
+
+        function upgradeReloadTime() {
+            reloadTime *= 0.7;
+            hideUpgradePanel();
+            gameRunning = true;
+            statusEl.textContent = '遊戲繼續！補充時間縮短！';
+        }
+
+        function upgradeBurstCount() {
+            burstCount += 1;
+            hideUpgradePanel();
+            gameRunning = true;
+            statusEl.textContent = '遊戲繼續！連發子彈數增加！';
+        }
+
+        function showUpgradePanel() {
+            gameRunning = false;
+            upgradePanelEl.style.display = 'block';
+            statusEl.textContent = '請選擇一個升級！';
+        }
+
+        function hideUpgradePanel() {
+            upgradePanelEl.style.display = 'none';
+            lastUpgradeScore = score;
+        }
+
+        function toggleGame() {
+            gameRunning = !gameRunning;
+            gameOver = false;
+            gameOverEl.style.display = 'none';
+            upgradePanelEl.style.display = 'none';
+            if (gameRunning) {
+                score = 0;
+                bulletCount = maxBullets;
+                lives = maxLives;
+                armor = 0;
+                isReloading = false;
+                enemyInterval = 1200;
+                lastUpgradeScore = 0;
+                useRocket = false;
+                gameTime = 0;
+                poisonRadius = 200;
+                poisonCenterY = 100;
+                updateScore();
+                updateBulletStatus();
+                updateLivesDisplay();
+                updateArmorDisplay();
+                enemies.forEach(enemy => enemy.el.remove());
+                bullets.forEach(bullet => bullet.el.remove());
+                enemies = [];
+                bullets = [];
+                statusEl.textContent = isMultiplayer ? '多人模式開始！P1: WASDE, P2: IJKLO' : '遊戲開始！使用 W、A、S、D 鍵移動，E 鍵射擊';
+                resetEnemyInterval();
+                resetCars();
+            } else {
+                statusEl.textContent = '遊戲暫停';
+            }
+        }
+
+        function toggleMode() {
+            isMultiplayer = !isMultiplayer;
+            car2El.style.display = isMultiplayer ? 'block' : 'none';
+            modeToggleBtn.textContent = isMultiplayer ? '切換模式 (多人)' : '切換模式 (單人)';
+            modeStatusEl.textContent = isMultiplayer ? '模式：多人' : '模式：單人';
+            if (!gameRunning) resetCars();
+        }
+
+        function resetCars() {
+            car1.x = 175; car1.y = 500;
+            car2.x = 175; car2.y = 500;
+            car1El.style.left = car1.x + 'px';
+            car1El.style.top = car1.y + 'px';
+            car2El.style.left = car2.x + 'px';
+            car2El.style.top = car2.y + 'px';
+        }
+
+        function updateCarPosition() {
+            updateCarSpeed();
+            car1.x += car1.dx; car1.y += car1.dy;
+            if (car1.x < 0) car1.x = 0; if (car1.x > 350) car1.x = 350;
+            if (car1.y < 0) car1.y = 0; if (car1.y > 550) car1.y = 550;
+            car1El.style.left = car1.x + 'px'; car1El.style.top = car1.y + 'px';
+
+            if (isMultiplayer) {
+                car2.x += car2.dx; car2.y += car2.dy;
+                if (car2.x < 0) car2.x = 0; if (car2.x > 350) car2.x = 350;
+                if (car2.y < 0) car2.y = 0; if (car2.y > 550) car2.y = 550;
+                car2El.style.left = car2.x + 'px'; car2El.style.top = car2.y + 'px';
+            }
+        }
+
+        function createEnemy() {
+            if (gameRunning && !gameOver) {
+                let x = Math.random() * 370;
+                let y = Math.random() * (poisonCenterY + poisonRadius - 30);
+                let enemy = { x, y, dx: (Math.random() - 0.5) * 2, dy: Math.random() * 2 + 1, maxSpeed: 2.5, el: document.createElement('div') };
+                enemy.el.className = 'enemy';
+                enemy.el.style.left = enemy.x + 'px';
+                enemy.el.style.top = enemy.y + 'px';
+                gameArea.appendChild(enemy.el);
+                enemies.push(enemy);
+            }
+        }
+
+        let enemyTimer = null;
+        function resetEnemyInterval() {
+            if (enemyTimer) clearInterval(enemyTimer);
+            enemyTimer = setInterval(createEnemy, enemyInterval);
+        }
+
+        function updateBullets() {
+            if (gameRunning && !gameOver) {
+                bullets.forEach((bullet, bIndex) => {
+                    bullet.y += bullet.speed;
+                    bullet.el.style.top = bullet.y + 'px';
+                    if (bullet.y < 0) {
+                        bullet.el.remove();
+                        bullets.splice(bIndex, 1);
+                        return;
+                    }
+                    enemies.forEach((enemy, eIndex) => {
+                        const bulletWidth = bullet.isRocket ? 10 : 10;
+                        const bulletHeight = bullet.isRocket ? 20 : 10;
+                        if (bullet.y < enemy.y + 30 && bullet.y + bulletHeight > enemy.y &&
+                            bullet.x < enemy.x + 30 && bullet.x + bulletWidth > enemy.x) {
+                            if (bullet.isRocket) {
+                                createExplosion(bullet.x + bulletWidth / 2, bullet.y + bulletHeight / 2);
+                                const explosionRadius = 50;
+                                enemies = enemies.filter((en, idx) => {
+                                    const dx = (bullet.x + bulletWidth / 2) - (en.x + 15);
+                                    const dy = (bullet.y + bulletHeight / 2) - (en.y + 15);
+                                    const distance = Math.sqrt(dx * dx + dy * dy);
+                                    if (distance < explosionRadius) {
+                                        en.el.remove();
+                                        score += 7;
+                                        armor = Math.min(armor + 1, maxArmor);
+                                        if (idx === eIndex) useRocket = true;
+                                        return false;
+                                    }
+                                    return true;
+                                });
+                            } else {
+                                enemy.el.remove();
+                                enemies.splice(eIndex, 1);
+                                score += 5;
+                                armor = Math.min(armor + 1, maxArmor);
+                                useRocket = true;
+                            }
+                            bullet.el.remove();
+                            bullets.splice(bIndex, 1);
+                            updateScore();
+                            updateArmorDisplay();
+                        }
+                    });
+                });
+            }
+        }
+
+        function updateEnemies() {
+            if (gameRunning && !gameOver) {
+                enemies.forEach((enemy, index) => {
+                    const targetX = isMultiplayer ? (car1.x + car2.x) / 2 : car1.x;
+                    const targetY = isMultiplayer ? (car1.y + car2.y) / 2 : car1.y;
+                    const dx = (targetX - enemy.x) * 0.02;
+                    const dy = (targetY - enemy.y) * 0.02;
+                    enemy.dx = Math.max(-enemy.maxSpeed, Math.min(enemy.maxSpeed, enemy.dx + dx));
+                    enemy.dy = Math.max(-enemy.maxSpeed, Math.min(enemy.maxSpeed, enemy.dy + dy));
+                    enemy.x += enemy.dx;
+                    enemy.y += enemy.dy;
+                    enemy.el.style.left = enemy.x + 'px';
+                    enemy.el.style.top = enemy.y + 'px';
+                    if (enemy.x < 0 || enemy.x > 370) enemy.dx *= -0.8;
+                    if (enemy.y < 0 || enemy.y > 570) enemy.dy *= -0.8;
+
+                    if (isPointInCircle(enemy.x + 15, enemy.y + 15, car1.x + 25, car1.y + 25, 25)) {
+                        enemy.el.remove();
+                        enemies.splice(index, 1);
+                        if (armor > 0) armor--;
+                        else lives--;
+                        updateArmorDisplay();
+                        updateLivesDisplay();
+                        if (lives <= 0) endGame(false);
+                    }
+                    if (isMultiplayer && isPointInCircle(enemy.x + 15, enemy.y + 15, car2.x + 25, car2.y + 25, 25)) {
+                        enemy.el.remove();
+                        enemies.splice(index, 1);
+                        if (armor > 0) armor--;
+                        else lives--;
+                        updateArmorDisplay();
+                        updateLivesDisplay();
+                        if (lives <= 0) endGame(false);
+                    }
+                });
+            }
+        }
+
+        function updatePoisonCircle() {
+            if (gameRunning && !gameOver) {
+                poisonRadius -= poisonShrinkSpeed;
+                poisonCenterY += 0.8;
+                poisonCircleEl.style.width = poisonRadius * 2 + 'px';
+                poisonCircleEl.style.height = poisonRadius * 2 + 'px';
+                poisonCircleEl.style.left = (200 - poisonRadius) + 'px';
+                poisonCircleEl.style.top = (poisonCenterY - poisonRadius) + 'px';
+                updatePoisonStatus();
+                if (poisonRadius <= 50 || score >= 1000) endGame(true);
+            }
+        }
+
+        function endGame(victory) {
+            gameOver = true;
+            gameRunning = false;
+            gameOverEl.textContent = victory ? '生存成功！' : '遊戲結束！';
+            gameOverEl.style.display = 'block';
+            statusEl.textContent = `最終分數: ${score}`;
+        }
+
+        function updateScore() {
+            scoreEl.textContent = `分數: ${score}`;
+            if (Math.floor(score / 100) > Math.floor((score - 1) / 100)) {
+                enemyInterval = Math.max(500, enemyInterval * 0.8);
+                poisonShrinkSpeed += 0.05;
+                resetEnemyInterval();
+            }
+            if (score >= lastUpgradeScore + 100 && score > 0) showUpgradePanel();
+        }
+
+        // 遊戲迴圈（每50ms）
+        setInterval(() => {
+            if (gameRunning && !gameOver) {
+                updateCarPosition();
+                updateEnemies();
+                updateBullets();
+                updatePoisonCircle();
+                gameTime++;
+            }
+        }, 50);
+
+        resetEnemyInterval();
+        resetCars();
+    </script>
+</body>
+</html>
